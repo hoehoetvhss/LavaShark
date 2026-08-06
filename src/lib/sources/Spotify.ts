@@ -353,7 +353,7 @@ export default class Spotify extends AbstractExternalSource {
             this.token = `Bearer ${token}`;
             this.renewDate = expiresAfter - 5000;
         } catch (error) {
-            throw new Error("Failed to retrieve access token from Spotify.");
+            throw new Error("Failed to retrieve access token from Spotify.", { cause: error });
         }
     }
 
@@ -449,7 +449,7 @@ export default class Spotify extends AbstractExternalSource {
             }
 
             // No available secrets, throw error
-            throw new Error('No secrets available and unable to fetch from remote');
+            throw new Error('No secrets available and unable to fetch from remote', { cause: error });
         }
     }
 

@@ -3,9 +3,13 @@ import Player from './Player';
 import type {
     ChannelMixOptions,
     DistortionOptions,
+    EchoOptions,
     FilterOptions,
+    HighPassOptions,
     KaraokeOptions,
     LowPassOptions,
+    NormalizationOptions,
+    PluginFiltersOptions,
     RotationOptions,
     TimescaleOptions,
     TremoloOptions,
@@ -259,6 +263,62 @@ export default class Filters {
         return this;
     }
 
+    public setPluginFilters(options: PluginFiltersOptions | null, apply = true): this {
+        if (options === undefined) throw new TypeError('PluginFiltersOptions must not be empty!');
+        if (options !== null && (typeof options !== 'object' || Array.isArray(options))) {
+            throw new TypeError('PluginFiltersOptions must be an object.');
+        }
+
+        if (options === null) {
+            delete this.options.pluginFilters;
+        }
+        else {
+            this.options.pluginFilters = options;
+        }
+
+        if (apply) this.apply();
+
+        return this;
+    }
+
+    public setPluginFilter(pluginName: string, options: Record<string, unknown> | null, apply = true): this {
+        if (!pluginName || typeof pluginName !== 'string') throw new TypeError('Plugin name must be a non-empty string.');
+        if (options === undefined) throw new TypeError('Plugin filter options must not be empty!');
+        if (options !== null && (typeof options !== 'object' || Array.isArray(options))) {
+            throw new TypeError('Plugin filter options must be an object.');
+        }
+
+        if (!this.options.pluginFilters) {
+            this.options.pluginFilters = {};
+        }
+
+        if (options === null) {
+            delete this.options.pluginFilters[pluginName];
+            if (Object.keys(this.options.pluginFilters).length === 0) {
+                delete this.options.pluginFilters;
+            }
+        }
+        else {
+            this.options.pluginFilters[pluginName] = options;
+        }
+
+        if (apply) this.apply();
+
+        return this;
+    }
+
+    public setNormalization(options: NormalizationOptions | null, apply = true): this {
+        return this.setPluginFilter('normalization', options as Record<string, unknown> | null, apply);
+    }
+
+    public setEcho(options: EchoOptions | null, apply = true): this {
+        return this.setPluginFilter('echo', options as Record<string, unknown> | null, apply);
+    }
+
+    public setHighPass(options: HighPassOptions | null, apply = true): this {
+        return this.setPluginFilter('highPass', options as Record<string, unknown> | null, apply);
+    }
+
     /**
      * Sets the volume
      * @param vol - The volume to set [0,500]
@@ -280,7 +340,7 @@ export default class Filters {
         this.options = this.options.volume ? { volume: this.options.volume } : {};
 
         for (const [filter, config] of Object.entries(filters)) {
-            if (!['channelMix', 'distortion', 'equalizer', 'karaoke', 'lowPass', 'rotation', 'timescale', 'tremolo', 'vibrato'].includes(filter)) {
+            if (!['channelMix', 'distortion', 'equalizer', 'karaoke', 'lowPass', 'pluginFilters', 'rotation', 'timescale', 'tremolo', 'vibrato'].includes(filter)) {
                 continue;
             }
             else {

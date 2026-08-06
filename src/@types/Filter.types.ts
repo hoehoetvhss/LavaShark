@@ -47,6 +47,28 @@ export type VibratoOptions = {
     depth?: number;
 }
 
+export type NormalizationOptions = {
+    maxAmplitude?: number;
+    adaptive?: boolean;
+};
+
+export type EchoOptions = {
+    delay?: number;
+    decay?: number;
+};
+
+export type HighPassOptions = {
+    cutoffFrequency?: number;
+    boostFactor?: number;
+};
+
+export type PluginFiltersOptions = {
+    normalization?: NormalizationOptions;
+    echo?: EchoOptions;
+    highPass?: HighPassOptions;
+    [key: string]: Record<string, unknown> | unknown;
+};
+
 export type FilterOptions = {
     channelMix?: ChannelMixOptions;
     distortion?: DistortionOptions;
@@ -59,6 +81,7 @@ export type FilterOptions = {
 
     karaoke?: KaraokeOptions;
     lowPass?: LowPassOptions;
+    pluginFilters?: PluginFiltersOptions;
     rotation?: RotationOptions;
     timescale?: TimescaleOptions;
     tremolo?: TremoloOptions;
@@ -66,4 +89,4 @@ export type FilterOptions = {
     volume?: number;
 
     [key: string]: unknown;
-}
+};

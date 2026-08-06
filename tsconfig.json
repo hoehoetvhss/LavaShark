@@ -2,8 +2,8 @@
     "compilerOptions": {
         "incremental": true,
         "target": "ES2022",
-        "module": "CommonJS",
-        "moduleResolution": "node",
+        "module": "Node16",
+        "moduleResolution": "Node16",
         "lib": [
             "ES2022"
         ],
