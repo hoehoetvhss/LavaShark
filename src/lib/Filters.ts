@@ -283,6 +283,9 @@ export default class Filters {
 
     public setPluginFilter(pluginName: string, options: Record<string, unknown> | null, apply = true): this {
         if (!pluginName || typeof pluginName !== 'string') throw new TypeError('Plugin name must be a non-empty string.');
+        if (['__proto__', 'constructor', 'prototype'].includes(pluginName)) {
+            throw new TypeError('Invalid plugin name: prototype pollution attempt detected.');
+        }
         if (options === undefined) throw new TypeError('Plugin filter options must not be empty!');
         if (options !== null && (typeof options !== 'object' || Array.isArray(options))) {
             throw new TypeError('Plugin filter options must be an object.');
