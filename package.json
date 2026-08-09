@@ -10,7 +10,7 @@
     ],
     "scripts": {
         "build": "tsc",
-        "test": "npm run build",
+        "test": "npm run build && npm run test:apple-music && npm run test:deezer && npm run test:spotify",
         "test:apple-music": "tsx scripts/test-sources-apple-music.ts",
         "test:deezer": "tsx scripts/test-sources-deezer.ts",
         "test:spotify": "tsx scripts/test-sources-spotify.ts",
