@@ -3,7 +3,7 @@
         "incremental": true,
         "target": "ES2022",
         "module": "CommonJS",
-        "moduleResolution": "node",
+        "moduleResolution": "bundler",
         "lib": [
             "ES2022"
         ],
