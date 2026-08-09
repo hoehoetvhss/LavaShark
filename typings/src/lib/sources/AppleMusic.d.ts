@@ -17,6 +17,14 @@ export default class AppleMusic extends AbstractExternalSource {
     getArtistTopTracks(id: string, storefront: string): Promise<SearchResult>;
     private handleErrorResult;
     private buildTrack;
+    private getPublicPageResult;
+    private lookupItunesTracks;
+    private buildPublicPageTrack;
+    private createPublicPageError;
+    private static parseSchema;
+    private static getTrackId;
+    private static getArtistName;
+    private static parseIsoDuration;
     private makeRequest;
     private renewToken;
 }

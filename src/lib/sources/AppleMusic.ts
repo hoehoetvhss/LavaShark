@@ -1,4 +1,4 @@
-import { request } from 'undici';
+import { fetch, request } from 'undici';
 
 import { AbstractExternalSource } from './AbstractExternalSource';
 import LavaShark from '../LavaShark';
@@ -70,10 +70,40 @@ interface IErrorResponse {
     errors: IAppleMusicError[];
 }
 
+interface IAppleMusicSchemaArtist {
+    name?: string;
+}
+
+interface IAppleMusicSchemaTrack {
+    name?: string;
+    duration?: string;
+    url?: string;
+    byArtist?: IAppleMusicSchemaArtist | IAppleMusicSchemaArtist[];
+    creator?: IAppleMusicSchemaArtist | IAppleMusicSchemaArtist[];
+}
+
+interface IAppleMusicSchema extends IAppleMusicSchemaTrack {
+    '@type'?: string;
+    track?: IAppleMusicSchemaTrack[];
+    tracks?: IAppleMusicSchemaTrack[];
+}
+
+interface IItunesLookupTrack {
+    artistName?: string;
+    trackId?: number;
+    trackName?: string;
+    trackTimeMillis?: number;
+    trackViewUrl?: string;
+}
+
+interface IItunesLookupResponse {
+    results: IItunesLookupTrack[];
+}
+
 export default class AppleMusic extends AbstractExternalSource {
     public static readonly APPLE_MUSIC_REGEX = /^(?:https?:\/\/|)?(?:music\.)?apple\.com\/(?<storefront>[a-z]{2})\/(?<type>album|playlist|artist|music-video)(?:\/[^/]+)?\/(?<id>[^/?]+)(?:\?i=(?<albumtrackid>\d+))?/;
     private static readonly RENEW_URL = 'https://music.apple.com';
-    private static readonly SCRIPTS_REGEX = /<script type="module" .+ src="(?<endpoint>\/assets\/index.+\.js)">/g;
+    private static readonly SCRIPTS_REGEX = /<script\b[^>]*\bsrc=["'](?<endpoint>\/assets\/index[^"']+\.js)["'][^>]*>/g;
     private static readonly TOKEN_REGEX = /const \w{2}="(?<token>ey[\w.-]+)"/;
 
     private static readonly USER_AGENT = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/102.0.0.0 Safari/537.36';
@@ -124,7 +154,7 @@ export default class AppleMusic extends AbstractExternalSource {
         const res = await this.makeRequest<IMusicVideoResponse>(`music-videos/${id}`, storefront);
 
         if (res instanceof AppleMusicError) {
-            return this.handleErrorResult(res);
+            return this.getPublicPageResult('music-video', id, storefront);
         }
 
         return {
@@ -138,7 +168,7 @@ export default class AppleMusic extends AbstractExternalSource {
         const res = await this.makeRequest<ISongsResponse>(`songs/${id}`, storefront);
 
         if (res instanceof AppleMusicError) {
-            return this.handleErrorResult(res);
+            return this.getPublicPageResult('song', id, storefront);
         }
 
         return {
@@ -153,7 +183,8 @@ export default class AppleMusic extends AbstractExternalSource {
         const res = await this.makeRequest<IAppleMusicList>(`${type === 'ALBUM' ? 'albums' : 'playlists'}/${id}`, storefront);
 
         if (res instanceof AppleMusicError) {
-            return this.handleErrorResult(res);
+            return this.getPublicPageResult(
+                type === 'ALBUM' ? 'album' : 'playlist', id, storefront);
         }
 
         const title = res.data[0].attributes.name;
@@ -196,11 +227,11 @@ export default class AppleMusic extends AbstractExternalSource {
         const res = await this.makeRequest<ISongsResponse>(`artists/${id}/view/top-songs`, storefront);
 
         if (res instanceof AppleMusicError) {
-            return this.handleErrorResult(res);
+            return this.getPublicPageResult('artist', id, storefront);
         }
 
         if (artistRes instanceof AppleMusicError) {
-            return this.handleErrorResult(artistRes);
+            return this.getPublicPageResult('artist', id, storefront);
         }
 
         for (const it of res.data) {
@@ -242,6 +273,191 @@ export default class AppleMusic extends AbstractExternalSource {
         );
     }
 
+    private async getPublicPageResult(
+        type: 'album' | 'artist' | 'music-video' | 'playlist' | 'song',
+        id: string,
+        storefront: string
+    ): Promise<SearchResult> {
+        try {
+            const response = await fetch(
+                `https://music.apple.com/${storefront}/${type}/_/${id}`,
+                { headers: { 'User-Agent': AppleMusic.USER_AGENT } }
+            );
+
+            if (!response.ok) {
+                return this.handleErrorResult(this.createPublicPageError(
+                    `Apple Music public page returned HTTP ${response.status}`
+                ));
+            }
+
+            const html = await response.text();
+            const schemas = [...html.matchAll(
+                /<script\b[^>]*type=["']application\/ld\+json["'][^>]*>(?<json>[\s\S]*?)<\/script>/g
+            )];
+            const schema = schemas
+                .map(match => AppleMusic.parseSchema(match.groups?.['json']))
+                .find(candidate => candidate?.name);
+
+            if (!schema) {
+                return this.handleErrorResult(this.createPublicPageError(
+                    'Could not parse Apple Music public page metadata'
+                ));
+            }
+
+            const schemaTracks = type === 'song' || type === 'music-video'
+                ? [schema]
+                : schema.tracks ?? schema.track ?? [];
+            const limitedTracks = schemaTracks.slice(0, 400);
+            const trackIds = limitedTracks
+                .map(track => AppleMusic.getTrackId(track.url))
+                .filter((trackId): trackId is string => Boolean(trackId));
+            const lookupTracks = await this.lookupItunesTracks(trackIds);
+            const defaultArtist = type === 'artist'
+                ? schema.name
+                : AppleMusic.getArtistName(schema.byArtist ?? schema.creator);
+            const unresolvedTracks = limitedTracks
+                .map(track => this.buildPublicPageTrack(
+                    track, lookupTracks, defaultArtist))
+                .filter((track): track is UnresolvedTrack => Boolean(track));
+
+            if (unresolvedTracks.length === 0) {
+                return this.handleErrorResult(this.createPublicPageError(
+                    'Apple Music public page returned no usable tracks'
+                ));
+            }
+
+            if (type === 'song' || type === 'music-video') {
+                return {
+                    loadType: 'track',
+                    playlistInfo: {} as PlaylistInfo,
+                    tracks: [unresolvedTracks[0]]
+                };
+            }
+
+            const title = type === 'artist'
+                ? `${schema.name}'s top tracks`
+                : schema.name ?? '';
+            return {
+                loadType: 'playlist',
+                playlistInfo: {
+                    name: title,
+                    duration: unresolvedTracks.reduce(
+                        (total, track) => total + track.duration.value, 0),
+                    selectedTrack: 0
+                },
+                tracks: unresolvedTracks
+            };
+        } catch (error) {
+            return this.handleErrorResult(this.createPublicPageError(
+                error instanceof Error ? error.message : String(error)
+            ));
+        }
+    }
+
+    private async lookupItunesTracks(
+        trackIds: string[]
+    ): Promise<Map<string, IItunesLookupTrack>> {
+        const tracks = new Map<string, IItunesLookupTrack>();
+
+        for (let offset = 0; offset < trackIds.length; offset += 100) {
+            const ids = trackIds.slice(offset, offset + 100);
+            const url = new URL('https://itunes.apple.com/lookup');
+            url.searchParams.set('id', ids.join(','));
+
+            const response = await fetch(url, {
+                headers: { 'User-Agent': AppleMusic.USER_AGENT }
+            });
+            if (!response.ok) continue;
+
+            const payload = await response.json() as IItunesLookupResponse;
+            for (const track of payload.results) {
+                if (track.trackId !== undefined) {
+                    tracks.set(String(track.trackId), track);
+                }
+            }
+        }
+
+        return tracks;
+    }
+
+    private buildPublicPageTrack(
+        schemaTrack: IAppleMusicSchemaTrack,
+        lookupTracks: Map<string, IItunesLookupTrack>,
+        defaultArtist?: string
+    ): UnresolvedTrack | null {
+        const id = AppleMusic.getTrackId(schemaTrack.url);
+        const lookupTrack = id ? lookupTracks.get(id) : undefined;
+        const title = lookupTrack?.trackName ?? schemaTrack.name;
+        const artist = lookupTrack?.artistName ??
+            AppleMusic.getArtistName(
+                schemaTrack.byArtist ?? schemaTrack.creator) ??
+            defaultArtist;
+        const duration = lookupTrack?.trackTimeMillis ??
+            AppleMusic.parseIsoDuration(schemaTrack.duration);
+        const url = lookupTrack?.trackViewUrl ?? schemaTrack.url;
+
+        if (!title || !artist || duration === undefined || !url) {
+            return null;
+        }
+
+        return new UnresolvedTrack(
+            this.lavashark,
+            title,
+            artist,
+            duration,
+            url,
+            'apple-music'
+        );
+    }
+
+    private createPublicPageError(message: string): AppleMusicError {
+        return new AppleMusicError({
+            errors: [{ title: 'Apple Music public page error', detail: message }]
+        });
+    }
+
+    private static parseSchema(json: string | undefined): IAppleMusicSchema | null {
+        if (!json) return null;
+
+        try {
+            const schema = JSON.parse(json) as unknown;
+            return typeof schema === 'object' && schema !== null
+                ? schema as IAppleMusicSchema
+                : null;
+        } catch {
+            return null;
+        }
+    }
+
+    private static getTrackId(url: string | undefined): string | undefined {
+        return url?.match(/\/(\d+)(?:[?#]|$)/)?.[1];
+    }
+
+    private static getArtistName(
+        artist: IAppleMusicSchemaArtist | IAppleMusicSchemaArtist[] | undefined
+    ): string | undefined {
+        if (Array.isArray(artist)) {
+            const names = artist
+                .map(item => item.name)
+                .filter((name): name is string => Boolean(name));
+            return names.length > 0 ? names.join(', ') : undefined;
+        }
+
+        return artist?.name;
+    }
+
+    private static parseIsoDuration(duration: string | undefined): number | undefined {
+        const match = duration?.match(
+            /^PT(?:(?<hours>\d+)H)?(?:(?<minutes>\d+)M)?(?:(?<seconds>\d+(?:\.\d+)?)S)?$/
+        );
+        if (!match?.groups) return undefined;
+
+        const hours = Number(match.groups['hours'] ?? 0);
+        const minutes = Number(match.groups['minutes'] ?? 0);
+        const seconds = Number(match.groups['seconds'] ?? 0);
+        return Math.round((hours * 3600 + minutes * 60 + seconds) * 1000);
+    }
+
     private async makeRequest<T>(endpoint: string, storefront: string): Promise<T | AppleMusicError> {
         if (!this.token || this.renewDate === 0 || Date.now() > this.renewDate) await this.renewToken();
 
@@ -249,23 +465,52 @@ export default class AppleMusic extends AbstractExternalSource {
             headers: {
                 'User-Agent': AppleMusic.USER_AGENT,
                 Authorization: `Bearer ${this.token}`,
-                'Origin': 'https://apple.com'
+                Origin: 'https://music.apple.com',
+                Referer: 'https://music.apple.com/'
             }
         });
+        const body = await res.body.text();
 
-        if (res.statusCode === 200) {
-            return res.body.json() as T;
-        } else {
-            return new AppleMusicError(await res.body.json() as IErrorResponse);
+        if (!body) {
+            return new AppleMusicError({
+                errors: [{
+                    title: `HTTP ${res.statusCode}`,
+                    detail: `Apple Music API returned HTTP ${res.statusCode} with an empty response`
+                }]
+            });
         }
+
+        let payload: unknown;
+        try {
+            payload = JSON.parse(body) as unknown;
+        } catch {
+            return new AppleMusicError({
+                errors: [{
+                    title: `HTTP ${res.statusCode}`,
+                    detail: `Apple Music API returned invalid JSON with HTTP ${res.statusCode}`
+                }]
+            });
+        }
+
+        return res.statusCode === 200
+            ? payload as T
+            : new AppleMusicError(payload as IErrorResponse);
     }
 
     private async renewToken() {
-        const html: string = await request(AppleMusic.RENEW_URL + '/us/browse', {
+        const response = await fetch(AppleMusic.RENEW_URL + '/us/browse', {
             headers: {
                 'User-Agent': AppleMusic.USER_AGENT
             },
-        }).then(r => r.body.text());
+        });
+
+        if (!response.ok) {
+            throw new Error(
+                `Could not load Apple Music token page: HTTP ${response.status}`
+            );
+        }
+
+        const html = await response.text();
 
         const scriptsMatch = [...html.matchAll(AppleMusic.SCRIPTS_REGEX)];
 
