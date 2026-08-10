@@ -65,6 +65,19 @@ interface ISpotifySecret {
     secret: number[];
 }
 
+type JsonObject = Record<string, unknown>;
+
+interface IPartnerApiResponse {
+    data?: JsonObject;
+    errors?: Array<{
+        message?: string;
+    }>;
+}
+
+interface IWebPlayerConfig {
+    clientVersion: string;
+}
+
 
 export default class Spotify extends AbstractExternalSource {
     public static readonly SPOTIFY_REGEX = /^(?:https?:\/\/(?:open\.)?spotify\.com|spotify)[/:](?:intl-[a-zA-Z]+\/)?(?<type>track|album|playlist|artist)[/:](?<id>[a-zA-Z0-9]+)/;
@@ -87,6 +100,9 @@ export default class Spotify extends AbstractExternalSource {
     private token: string | null;
     private renewDate: number;
 
+    private partnerAppVersion: string | null;
+    private partnerQueryHashes: Map<string, string>;
+
     constructor(lavashark: LavaShark, clientId?: string, clientSecret?: string, market = 'US') {
         super(lavashark);
 
@@ -101,6 +117,8 @@ export default class Spotify extends AbstractExternalSource {
 
         this.token = null;
         this.renewDate = 0;
+        this.partnerAppVersion = null;
+        this.partnerQueryHashes = new Map();
     }
 
     public async loadItem(query: string): Promise<SearchResult | null> {
@@ -129,6 +147,10 @@ export default class Spotify extends AbstractExternalSource {
     }
 
     public async getTrack(id: string): Promise<SearchResult> {
+        if (!this.auth) {
+            return this.getPartnerTrack(id);
+        }
+
         const res = await this.makeRequest<ISpotifyTrack>(`tracks/${id}`);
 
         if (res instanceof SpotifyError) {
@@ -143,6 +165,10 @@ export default class Spotify extends AbstractExternalSource {
     }
 
     public async getAlbum(id: string): Promise<SearchResult> {
+        if (!this.auth) {
+            return this.getPartnerAlbum(id);
+        }
+
         const unresolvedTracks: UnresolvedTrack[] = [];
 
         let res: ISpotifyAlbum | ISpotifyAlbumTracks | SpotifyError = await this.makeRequest<ISpotifyAlbum>(`albums/${id}`);
@@ -187,6 +213,10 @@ export default class Spotify extends AbstractExternalSource {
     }
 
     public async getPlaylist(id: string): Promise<SearchResult> {
+        if (!this.auth) {
+            return this.getPartnerPlaylist(id);
+        }
+
         const unresolvedTracks: UnresolvedTrack[] = [];
 
         let res: ISpotifyPlaylist | ISpotifyPlaylistTracks | SpotifyError = await this.makeRequest<ISpotifyPlaylist>(`playlists/${id}`);
@@ -233,6 +263,10 @@ export default class Spotify extends AbstractExternalSource {
     }
 
     public async getArtistTopTracks(id: string): Promise<SearchResult> {
+        if (!this.auth) {
+            return this.getPartnerArtistTopTracks(id);
+        }
+
         const res = await this.makeRequest<{ tracks: ISpotifyTrack[] }>(`artists/${id}/top-tracks?market=${this.market}`);
 
         if (res instanceof SpotifyError) {
@@ -250,6 +284,374 @@ export default class Spotify extends AbstractExternalSource {
             },
             tracks: tracks
         };
+    }
+
+    private async getPartnerTrack(id: string): Promise<SearchResult> {
+        const res = await this.makePartnerRequest('getTrack', {
+            uri: `spotify:track:${id}`
+        });
+
+        if (res instanceof SpotifyError) {
+            return this.handleErrorResult(res);
+        }
+
+        const track = Spotify.getObject(res, 'trackUnion');
+        const unresolvedTrack = this.buildPartnerTrack(track);
+
+        if (!unresolvedTrack) {
+            return this.handleErrorResult(new SpotifyError('Invalid track data received'));
+        }
+
+        return {
+            loadType: 'track',
+            playlistInfo: {} as PlaylistInfo,
+            tracks: [unresolvedTrack]
+        };
+    }
+
+    private async getPartnerPlaylist(id: string): Promise<SearchResult> {
+        const unresolvedTracks: UnresolvedTrack[] = [];
+        let title = '';
+        let offset = 0;
+        let totalCount: number;
+
+        do {
+            const limit = Math.min(100, 400 - offset);
+            const res = await this.makePartnerRequest('fetchPlaylist', {
+                uri: `spotify:playlist:${id}`,
+                offset,
+                limit,
+                enableWatchFeedEntrypoint: false
+            });
+
+            if (res instanceof SpotifyError) {
+                return this.handleErrorResult(res);
+            }
+
+            const playlist = Spotify.getObject(res, 'playlistV2');
+            const content = Spotify.getObject(playlist, 'content');
+            const items = Spotify.getArray(content, 'items');
+
+            title ||= Spotify.getString(playlist, 'name') ?? '';
+            totalCount = Spotify.getNumber(content, 'totalCount') ?? items.length;
+
+            for (const item of items) {
+                const track = Spotify.getObject(
+                    Spotify.getObject(Spotify.getObject(item, 'itemV2'), 'data')
+                );
+                const type = Spotify.getString(track, '__typename');
+
+                if (type && type.toLowerCase() !== 'track') continue;
+
+                const unresolvedTrack = this.buildPartnerTrack(track);
+                if (unresolvedTrack) unresolvedTracks.push(unresolvedTrack);
+            }
+
+            if (items.length === 0) break;
+            offset += items.length;
+        } while (offset < totalCount && offset < 400);
+
+        return this.buildPartnerPlaylistResult(title, unresolvedTracks);
+    }
+
+    private async getPartnerAlbum(id: string): Promise<SearchResult> {
+        const unresolvedTracks: UnresolvedTrack[] = [];
+        let title = '';
+        let offset = 0;
+        let totalCount: number;
+
+        do {
+            const limit = Math.min(50, 400 - offset);
+            const res = await this.makePartnerRequest('getAlbum', {
+                uri: `spotify:album:${id}`,
+                offset,
+                limit
+            });
+
+            if (res instanceof SpotifyError) {
+                return this.handleErrorResult(res);
+            }
+
+            const album = Spotify.getObject(res, 'albumUnion');
+            const tracks = Spotify.getObject(album, 'tracksV2');
+            const items = Spotify.getArray(tracks, 'items');
+
+            title ||= Spotify.getString(album, 'name') ?? '';
+            totalCount = Spotify.getNumber(tracks, 'totalCount') ?? items.length;
+
+            for (const item of items) {
+                const track = Spotify.getObject(item, 'track');
+                const unresolvedTrack = this.buildPartnerTrack(track);
+                if (unresolvedTrack) unresolvedTracks.push(unresolvedTrack);
+            }
+
+            if (items.length === 0) break;
+            offset += items.length;
+        } while (offset < totalCount && offset < 400);
+
+        return this.buildPartnerPlaylistResult(title, unresolvedTracks);
+    }
+
+    private async getPartnerArtistTopTracks(id: string): Promise<SearchResult> {
+        const res = await this.makePartnerRequest('queryArtistOverview', {
+            uri: `spotify:artist:${id}`,
+            locale: 'en',
+            includePrerelease: true
+        });
+
+        if (res instanceof SpotifyError) {
+            return this.handleErrorResult(res);
+        }
+
+        const artist = Spotify.getObject(res, 'artistUnion');
+        const artistName = Spotify.getString(
+            Spotify.getObject(artist, 'profile'), 'name'
+        ) ?? '';
+        const discography = Spotify.getObject(artist, 'discography');
+        const topTracks = Spotify.getObject(discography, 'topTracks');
+        const items = Spotify.getArray(topTracks, 'items');
+        const tracks: UnresolvedTrack[] = [];
+
+        for (const item of items) {
+            const track = Spotify.firstObject(
+                Spotify.getObject(item, 'track'),
+                Spotify.getObject(Spotify.getObject(item, 'item'), 'data'),
+                Spotify.getObject(Spotify.getObject(item, 'itemV2'), 'data'),
+                Spotify.getObject(item, 'data')
+            );
+            const unresolvedTrack = this.buildPartnerTrack(track);
+            if (unresolvedTrack) tracks.push(unresolvedTrack);
+        }
+
+        return this.buildPartnerPlaylistResult(
+            artistName ? `${artistName} Top Tracks` : 'Top Tracks', tracks
+        );
+    }
+
+    private buildPartnerPlaylistResult(
+        title: string,
+        tracks: UnresolvedTrack[]
+    ): SearchResult {
+        return {
+            loadType: 'playlist',
+            playlistInfo: {
+                name: title,
+                duration: tracks.reduce((acc, curr) => acc + curr.duration.value, 0),
+                selectedTrack: 0
+            },
+            tracks
+        };
+    }
+
+    private buildPartnerTrack(track: JsonObject): UnresolvedTrack | null {
+        const title = Spotify.getString(track, 'name') ??
+            Spotify.getString(Spotify.getObject(track, 'identityTrait'), 'name');
+        const uri = Spotify.getString(track, 'uri');
+        const id = uri?.replace('spotify:track:', '') ??
+            Spotify.getString(track, 'id');
+        const duration = Spotify.getNumber(
+            Spotify.getObject(track, 'duration'), 'totalMilliseconds'
+        ) ?? Spotify.getNumber(
+            Spotify.getObject(track, 'trackDuration'), 'totalMilliseconds'
+        ) ?? Spotify.getNumber(track, 'duration_ms');
+
+        if (!title || !id || duration === undefined) {
+            return null;
+        }
+
+        let artists = Spotify.getArray(Spotify.getObject(track, 'artists'), 'items');
+        if (artists.length === 0) {
+            artists = [
+                ...Spotify.getArray(Spotify.getObject(track, 'firstArtist'), 'items'),
+                ...Spotify.getArray(Spotify.getObject(track, 'otherArtists'), 'items')
+            ];
+        }
+        if (artists.length === 0) {
+            artists = Spotify.getArray(
+                Spotify.getObject(
+                    Spotify.getObject(track, 'identityTrait'), 'contributors'
+                ),
+                'items'
+            );
+        }
+
+        const artistNames = artists
+            .map(artist => Spotify.getString(
+                Spotify.getObject(artist, 'profile'), 'name'
+            ) ?? Spotify.getString(artist, 'name'))
+            .filter((name): name is string => Boolean(name))
+            .join(', ');
+        const externalIds = Spotify.firstObject(
+            Spotify.getObject(track, 'externalIds'),
+            Spotify.getObject(track, 'external_ids')
+        );
+
+        return new UnresolvedTrack(
+            this.lavashark,
+            title,
+            artistNames || 'Unknown Artist',
+            duration,
+            `https://open.spotify.com/track/${id}`,
+            'spotify',
+            Spotify.getString(externalIds, 'isrc')
+        );
+    }
+
+    private async makePartnerRequest(
+        operationName: string,
+        variables: JsonObject
+    ): Promise<JsonObject | SpotifyError> {
+        try {
+            if (!this.token || this.renewDate === 0 || Date.now() > this.renewDate) {
+                await this.renewToken();
+            }
+
+            const hash = await this.getPartnerQueryHash(operationName);
+            const response = await request(
+                'https://api-partner.spotify.com/pathfinder/v1/query',
+                {
+                    method: 'POST',
+                    headers: {
+                        Authorization: this.token as string,
+                        'Content-Type': 'application/json',
+                        'Spotify-App-Version': this.partnerAppVersion as string,
+                        Referer: 'https://open.spotify.com/',
+                        Origin: 'https://open.spotify.com',
+                        'User-Agent': Spotify.USER_AGENT
+                    },
+                    body: JSON.stringify({
+                        variables,
+                        operationName,
+                        extensions: {
+                            persistedQuery: {
+                                version: 1,
+                                sha256Hash: hash
+                            }
+                        }
+                    })
+                }
+            );
+            const payload = await response.body.json() as IPartnerApiResponse;
+
+            if (payload.errors?.length) {
+                const message = payload.errors
+                    .map(error => error.message)
+                    .filter((message): message is string => Boolean(message))
+                    .join('; ');
+                return new SpotifyError(message || 'Spotify Partner API request failed');
+            }
+
+            if (response.statusCode >= 400 || !payload.data) {
+                return new SpotifyError(
+                    `Spotify Partner API returned HTTP ${response.statusCode}`
+                );
+            }
+
+            return payload.data;
+        } catch (error) {
+            return new SpotifyError(
+                error instanceof Error ? error.message : String(error)
+            );
+        }
+    }
+
+    private async getPartnerQueryHash(operationName: string): Promise<string> {
+        const cachedHash = this.partnerQueryHashes.get(operationName);
+        if (cachedHash && this.partnerAppVersion) return cachedHash;
+
+        const homepageResponse = await request('https://open.spotify.com/', {
+            headers: {
+                'User-Agent': Spotify.USER_AGENT,
+                Accept: 'text/html'
+            }
+        });
+        const homepage = await homepageResponse.body.text();
+
+        if (homepageResponse.statusCode >= 400) {
+            throw new Error(
+                `Failed to load Spotify Web Player: HTTP ${homepageResponse.statusCode}`
+            );
+        }
+
+        const configBase64 = homepage.match(
+            /<script id="appServerConfig" type="text\/plain">([^<]+)<\/script>/
+        )?.[1];
+        const webPlayerUrl = homepage.match(
+            /https:\/\/[^"']+\/web-player\/web-player\.[a-f0-9]+\.js/
+        )?.[0];
+
+        if (!configBase64 || !webPlayerUrl) {
+            throw new Error('Could not locate Spotify Web Player configuration');
+        }
+
+        const config = JSON.parse(
+            Buffer.from(configBase64, 'base64').toString('utf8')
+        ) as IWebPlayerConfig;
+        const bundleResponse = await request(webPlayerUrl, {
+            headers: {'User-Agent': Spotify.USER_AGENT}
+        });
+        const bundle = await bundleResponse.body.text();
+
+        if (bundleResponse.statusCode >= 400) {
+            throw new Error(
+                `Failed to load Spotify Web Player bundle: HTTP ${bundleResponse.statusCode}`
+            );
+        }
+
+        for (const operation of [
+            'getTrack',
+            'fetchPlaylist',
+            'getAlbum',
+            'queryArtistOverview'
+        ]) {
+            const match = bundle.match(new RegExp(
+                `["']${operation}["'],["'](?:query|mutation)["'],["']([a-f0-9]{64})["']`
+            ));
+            if (match?.[1]) this.partnerQueryHashes.set(operation, match[1]);
+        }
+
+        this.partnerAppVersion = config.clientVersion;
+
+        const hash = this.partnerQueryHashes.get(operationName);
+        if (!hash) {
+            throw new Error(`Could not find Spotify query hash for ${operationName}`);
+        }
+
+        this.lavashark.emit(
+            'debug',
+            `[Spotify] Loaded Partner API metadata for Web Player ${config.clientVersion}`
+        );
+        return hash;
+    }
+
+    private static getObject(value: unknown, key?: string): JsonObject {
+        const candidate = key && Spotify.isObject(value) ? value[key] : value;
+        return Spotify.isObject(candidate) ? candidate : {};
+    }
+
+    private static getArray(value: unknown, key?: string): JsonObject[] {
+        const candidate = key && Spotify.isObject(value) ? value[key] : value;
+        return Array.isArray(candidate)
+            ? candidate.filter(Spotify.isObject)
+            : [];
+    }
+
+    private static getString(value: unknown, key: string): string | undefined {
+        const candidate = Spotify.isObject(value) ? value[key] : undefined;
+        return typeof candidate === 'string' ? candidate : undefined;
+    }
+
+    private static getNumber(value: unknown, key: string): number | undefined {
+        const candidate = Spotify.isObject(value) ? value[key] : undefined;
+        return typeof candidate === 'number' ? candidate : undefined;
+    }
+
+    private static firstObject(...values: JsonObject[]): JsonObject {
+        return values.find(value => Object.keys(value).length > 0) ?? {};
+    }
+
+    private static isObject(value: unknown): value is JsonObject {
+        return typeof value === 'object' && value !== null && !Array.isArray(value);
     }
 
     private handleErrorResult(error: SpotifyError): SearchResult {
