@@ -1,8 +1,9 @@
 import Node from '../Node';
 import type { Info, ITrack, LoadTracksResult, NodeStats, RequestOptions, RoutePlannerStatus, TrackInfo, UpdatePlayerOptions } from '../../@types';
 export declare class RESTController {
-    #private;
     private readonly node;
+    private readonly restUrl;
+    private sessionId;
     set setSessionId(sessionId: string);
     constructor(node: Node);
     decodeTrack(encodedTrack: string): Promise<TrackInfo>;

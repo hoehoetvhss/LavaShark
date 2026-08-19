@@ -1,7 +1,6 @@
 import type { User } from 'discord.js';
 import type { ITrack, Metadata, Timestamp } from '../../@types';
 export default class Track {
-    #private;
     readonly identifier: string;
     readonly uri: string;
     readonly title: string;
@@ -14,6 +13,7 @@ export default class Track {
     position?: number;
     encoded: string;
     metadata?: Metadata;
+    private readonly thumbnailUrl?;
     constructor(data: ITrack);
     get thumbnail(): string | null;
     setRequester(requester: User | null): void;
