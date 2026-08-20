@@ -53,6 +53,7 @@ export type NormalizationOptions = {
 };
 
 export type EchoOptions = {
+    echoLength?: number;
     delay?: number;
     decay?: number;
 };
@@ -65,6 +66,7 @@ export type HighPassOptions = {
 export type PluginFiltersOptions = {
     normalization?: NormalizationOptions;
     echo?: EchoOptions;
+    'high-pass'?: HighPassOptions;
     highPass?: HighPassOptions;
     [key: string]: Record<string, unknown> | unknown;
 };

@@ -315,11 +315,15 @@ export default class Filters {
     }
 
     public setEcho(options: EchoOptions | null, apply = true): this {
+        if (options && options.delay !== undefined && options.echoLength === undefined) {
+            const { delay, ...rest } = options;
+            return this.setPluginFilter('echo', { echoLength: delay, ...rest }, apply);
+        }
         return this.setPluginFilter('echo', options as Record<string, unknown> | null, apply);
     }
 
     public setHighPass(options: HighPassOptions | null, apply = true): this {
-        return this.setPluginFilter('highPass', options as Record<string, unknown> | null, apply);
+        return this.setPluginFilter('high-pass', options as Record<string, unknown> | null, apply);
     }
 
     /**
