@@ -29,11 +29,11 @@ export default class LavaShark extends EventEmitter {
     public nodes: Node[];
     public players: Map<string, Player>;    // <guildId, Player> 
 
-    #externalSources: AbstractExternalSource[];
-    #checkNodesStateTimer!: NodeJS.Timeout | undefined;
-    #lastNodeSorting: number;
+    private externalSources: AbstractExternalSource[];
+    private checkNodesStateTimer!: NodeJS.Timeout | undefined;
+    private lastNodeSorting: number;
 
-    readonly #defaultSearchSource: SEARCH_SOURCE;
+    private readonly defaultSearchSource: SEARCH_SOURCE;
     public readonly unresolvedSearchSource: SEARCH_SOURCE;
     public readonly useISRC: boolean;
 
@@ -112,19 +112,19 @@ export default class LavaShark extends EventEmitter {
         LavaShark.checkOptions(options);
 
         this.nodes = [];
-        this.#defaultSearchSource = options.defaultSearchSource ?? 'youtube';
+        this.defaultSearchSource = options.defaultSearchSource ?? 'youtube';
         this.unresolvedSearchSource = options.unresolvedSearchSource ?? 'youtube';
         this.useISRC = options.useISRC ?? true;
 
-        this.#externalSources = [];
+        this.externalSources = [];
 
         if (options.disabledSources) {
-            if (!options.disabledSources.includes('SPOTIFY')) this.#externalSources.push(new Spotify(this, options.spotify?.clientId, options.spotify?.clientSecret, options.spotify?.market));
-            if (!options.disabledSources.includes('APPLE_MUSIC')) this.#externalSources.push(new AppleMusic(this));
-            if (!options.disabledSources.includes('DEEZER')) this.#externalSources.push(new Deezer(this));
+            if (!options.disabledSources.includes('SPOTIFY')) this.externalSources.push(new Spotify(this, options.spotify?.clientId, options.spotify?.clientSecret, options.spotify?.market));
+            if (!options.disabledSources.includes('APPLE_MUSIC')) this.externalSources.push(new AppleMusic(this));
+            if (!options.disabledSources.includes('DEEZER')) this.externalSources.push(new Deezer(this));
         }
         else {
-            this.#externalSources = [
+            this.externalSources = [
                 new Spotify(this, options.spotify?.clientId, options.spotify?.clientSecret, options.spotify?.market),
                 new AppleMusic(this),
                 new Deezer(this)
@@ -140,7 +140,7 @@ export default class LavaShark extends EventEmitter {
             this.nodes.push(newNode);
         }
 
-        this.#lastNodeSorting = 0;
+        this.lastNodeSorting = 0;
     }
 
     public emit<EventName extends keyof LavaSharkEvents>(event: EventName, ...args: Parameters<LavaSharkEvents[EventName]>): boolean {
@@ -161,12 +161,12 @@ export default class LavaShark extends EventEmitter {
      * @returns {Promise<Node>}
      */
     public async bestNode(): Promise<Node> {
-        if (Date.now() < this.#lastNodeSorting + 30000) {
+        if (Date.now() < this.lastNodeSorting + 30000) {
             if (this.nodes[0].state === NodeState.CONNECTED) {
                 return this.nodes[0];
             }
             else {
-                this.#lastNodeSorting = 0;
+                this.lastNodeSorting = 0;
                 return this.bestNode();
             }
         }
@@ -175,7 +175,7 @@ export default class LavaShark extends EventEmitter {
         this.nodes = this.nodes.sort((a, b) => a.totalPenalties - b.totalPenalties);
 
         const node = this.nodes[0];
-        this.#lastNodeSorting = Date.now();
+        this.lastNodeSorting = Date.now();
 
         if (!node || node.state !== NodeState.CONNECTED) {
             throw new Error('No connected nodes!');
@@ -184,7 +184,7 @@ export default class LavaShark extends EventEmitter {
         try {
             await node.getPing();
         } catch (_) {
-            this.#lastNodeSorting = 0;
+            this.lastNodeSorting = 0;
             return this.bestNode();
         }
 
@@ -200,7 +200,7 @@ export default class LavaShark extends EventEmitter {
             throw new Error(`${extSource.constructor.name} must extend AbstractExternalSource`);
         }
 
-        this.#externalSources.push(extSource);
+        this.externalSources.push(extSource);
     }
 
     /**
@@ -231,7 +231,7 @@ export default class LavaShark extends EventEmitter {
      * Regularly check the connection state of all nodes
      */
     private keepCheckNodesState() {
-        this.#checkNodesStateTimer = setInterval(() => {
+        this.checkNodesStateTimer = setInterval(() => {
             const reconnectPromises = this.nodes.map(async node => {
                 if (node.state === NodeState.DISCONNECTED) {
                     this.emit('warn', node, `Try to reconnect to the disconnected node "${node.identifier}"`);
@@ -262,9 +262,9 @@ export default class LavaShark extends EventEmitter {
     public stopCheckNodeState(nodeIdentifier: string) {
         this.nodes = this.nodes.filter(node => node.identifier !== nodeIdentifier);
 
-        if (this.nodes.length === 0 && this.#checkNodesStateTimer) {
-            clearInterval(this.#checkNodesStateTimer);
-            this.#checkNodesStateTimer = undefined;
+        if (this.nodes.length === 0 && this.checkNodesStateTimer) {
+            clearInterval(this.checkNodesStateTimer);
+            this.checkNodesStateTimer = undefined;
             this.emit('debug', 'Stopped checking node states because there are no connected nodes left');
         }
     }
@@ -319,12 +319,12 @@ export default class LavaShark extends EventEmitter {
      * @param {('youtube' | 'youtubemusic' | 'soundcloud')} [source=youtube] - The search source
      * @returns {Promise<SearchResult>}
      */
-    public async search(query: string, source: SEARCH_SOURCE = this.#defaultSearchSource): Promise<SearchResult> {
+    public async search(query: string, source: SEARCH_SOURCE = this.defaultSearchSource): Promise<SearchResult> {
         if (typeof query !== 'string') {
             throw new TypeError('Search query must be a non-empty string');
         }
 
-        for (const source of this.#externalSources) {
+        for (const source of this.externalSources) {
             const loadRes = await source.loadItem(query);
 
             if (loadRes) return loadRes;
@@ -393,7 +393,7 @@ export default class LavaShark extends EventEmitter {
             node.connect();
         }
 
-        if (this.#checkNodesStateTimer) clearInterval(this.#checkNodesStateTimer);
+        if (this.checkNodesStateTimer) clearInterval(this.checkNodesStateTimer);
         this.keepCheckNodesState();
     }
 
@@ -437,7 +437,7 @@ export default class LavaShark extends EventEmitter {
                 ...packet.d
             };
 
-            // A node should be assigned to the player on Player#connect()
+            // A node should be assigned to the player on Player.connect()
             if (player.node === null) {
                 player.state = ConnectionState.DISCONNECTED;
                 throw new Error('Assertion failed. The Player does not have a node.');

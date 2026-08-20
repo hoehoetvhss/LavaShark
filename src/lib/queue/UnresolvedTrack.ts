@@ -15,11 +15,11 @@ export default class UnresolvedTrack {
 
     public requester: User | null;
 
-    readonly #isrc: string;
-    readonly #lavashark: LavaShark;
+    private readonly isrc: string;
+    private readonly lavashark: LavaShark;
 
     constructor(lavashark: LavaShark, title: string, author: string, duration?: number, uri?: string, source?: string, isrc?: string) {
-        this.#lavashark = lavashark;
+        this.lavashark = lavashark;
 
         this.title = title;
         this.author = author;
@@ -30,22 +30,22 @@ export default class UnresolvedTrack {
         this.uri = uri ?? '';
         this.source = source ?? 'Unknown';
 
-        if (isrc && lavashark.useISRC) this.#isrc = isrc;
+        if (isrc && lavashark.useISRC) this.isrc = isrc;
 
         this.requester = null;
     }
 
     get query() {
-        return this.#isrc ? `"${this.#isrc}"` : `${this.author} - ${this.title}`;
+        return this.isrc ? `"${this.isrc}"` : `${this.author} - ${this.title}`;
     }
 
     public async build(): Promise<Track> {
-        let res = await this.#lavashark.search(this.query, this.#lavashark.unresolvedSearchSource);
+        let res = await this.lavashark.search(this.query, this.lavashark.unresolvedSearchSource);
 
         if (res.loadType !== 'search' || !res.tracks.length) {
-            if (!this.#isrc) throw new Error(`Failed to resolve track ${this.uri}`);
+            if (!this.isrc) throw new Error(`Failed to resolve track ${this.uri}`);
 
-            res = await this.#lavashark.search(`${this.author} - ${this.title}`, this.#lavashark.unresolvedSearchSource);
+            res = await this.lavashark.search(`${this.author} - ${this.title}`, this.lavashark.unresolvedSearchSource);
 
             if (res.loadType !== 'search' || !res.tracks.length) throw new Error(`Failed to resolve track ${this.uri}`);
         }
@@ -59,7 +59,7 @@ export default class UnresolvedTrack {
             duration: this.duration,
             uri: this.uri,
             source: this.source,
-            isrc: this.#isrc,
+            isrc: this.isrc,
         };
 
         return track;

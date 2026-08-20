@@ -7,13 +7,18 @@ export declare enum NodeState {
     DISCONNECTED = 2
 }
 export default class Node {
-    #private;
     version?: version;
     readonly options: NodeOptions;
     rest: RESTController;
     retryAttempts: number;
     state: NodeState;
     stats: NodeStats;
+    private penalties?;
+    private ws;
+    private packetQueue;
+    private resuming;
+    private keepAliveInterval;
+    private readonly lavashark;
     static checkOptions(options: NodeOptions): void;
     /**
      * Create a new Node instance

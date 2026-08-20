@@ -29,15 +29,15 @@ import type {
 
 
 export class RESTController {
-    readonly #restUrl: string;
-    #sessionId: string;
+    private readonly restUrl: string;
+    private sessionId: string;
 
     set setSessionId(sessionId: string) {
-        this.#sessionId = sessionId;
+        this.sessionId = sessionId;
     }
 
     constructor(private readonly node: Node) {
-        this.#restUrl = `http${node.options.secure ? 's' : ''}://${node.options.hostname}:${node.options.port}`;
+        this.restUrl = `http${node.options.secure ? 's' : ''}://${node.options.hostname}:${node.options.port}`;
     }
 
     public async decodeTrack(encodedTrack: string): Promise<TrackInfo> {
@@ -89,7 +89,7 @@ export class RESTController {
     public async updateSession(resuming: boolean, timeout?: number) {
         await this.request({
             method: 'PATCH',
-            path: SESSIONS(this.#sessionId),
+            path: SESSIONS(this.sessionId),
             json: {
                 resuming,
                 timeout
@@ -100,12 +100,12 @@ export class RESTController {
     public async destroyPlayer(guildId: string) {
         await this.request({
             method: 'DELETE',
-            path: PLAYER(this.#sessionId, guildId)
+            path: PLAYER(this.sessionId, guildId)
         });
     }
 
     public async updatePlayer(guildId: string, options: UpdatePlayerOptions) {
-        let path = PLAYER(this.#sessionId, guildId);
+        let path = PLAYER(this.sessionId, guildId);
 
         if (options.noReplace) {
             path += '?noReplace=true';
@@ -154,7 +154,7 @@ export class RESTController {
             body = JSON.stringify(json);
         }
 
-        const res = await fetch(`${this.#restUrl}${path}`, {
+        const res = await fetch(`${this.restUrl}${path}`, {
             method,
             headers,
             body

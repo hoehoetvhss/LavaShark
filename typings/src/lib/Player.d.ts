@@ -23,7 +23,6 @@ export declare enum RepeatMode {
     QUEUE = 2
 }
 export default class Player {
-    #private;
     readonly guildId: string;
     readonly filters: Filters;
     node: Node | null;
@@ -40,6 +39,8 @@ export default class Player {
     state: ConnectionState;
     voiceState: VoiceState;
     moving: boolean;
+    private positionTimestamp;
+    private readonly lavashark;
     static checkOptions(options: PlayerOptions): void;
     /**
      * Create a new Player instance

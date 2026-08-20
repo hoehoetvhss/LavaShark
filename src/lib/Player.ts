@@ -60,8 +60,8 @@ export default class Player {
 
     public moving: boolean;
 
-    #positionTimestamp: number;
-    readonly #lavashark: LavaShark;
+    private positionTimestamp: number;
+    private readonly lavashark: LavaShark;
 
     static checkOptions(options: PlayerOptions) {
         if (!options.guildId) throw new TypeError('You must provide a guildId.');
@@ -88,7 +88,7 @@ export default class Player {
     constructor(lavashark: LavaShark, options: PlayerOptions) {
         Player.checkOptions(options);
 
-        this.#lavashark = lavashark;
+        this.lavashark = lavashark;
         this.guildId = options.guildId;
 
         this.filters = new Filters(this);
@@ -105,7 +105,7 @@ export default class Player {
         this.repeatMode = RepeatMode.OFF;
 
         this.position = 0;
-        this.#positionTimestamp = 0;
+        this.positionTimestamp = 0;
 
         this.playing = false;
         this.paused = false;
@@ -115,10 +115,10 @@ export default class Player {
         this.state = ConnectionState.DISCONNECTED;
         this.voiceState = {};
 
-        this.#lavashark.emit('debug', `Player created for guild ${this.guildId}`);
+        this.lavashark.emit('debug', `Player created for guild ${this.guildId}`);
         this.assignNode();
 
-        this.#lavashark.emit('playerCreate', this);
+        this.lavashark.emit('playerCreate', this);
     }
 
     /**
@@ -132,7 +132,7 @@ export default class Player {
         const rate = filterConfig?.rate ?? 1;
         const speed = filterConfig?.speed ?? 1;
 
-        return Math.min(this.current?.duration.value ?? 0, (this.position + (Date.now() - this.#positionTimestamp)) * rate * speed);
+        return Math.min(this.current?.duration.value ?? 0, (this.position + (Date.now() - this.positionTimestamp)) * rate * speed);
     }
 
     /**
@@ -155,10 +155,10 @@ export default class Player {
      * @private
      */
     private async assignNode() {
-        const node = await this.#lavashark.bestNode();
+        const node = await this.lavashark.bestNode();
 
         this.node = node;
-        this.#lavashark.emit('debug', `Assigned node ${node.identifier} to player ${this.guildId}`);
+        this.lavashark.emit('debug', `Assigned node ${node.identifier} to player ${this.guildId}`);
     }
 
     /**
@@ -178,7 +178,7 @@ export default class Player {
             this.queue.add(tracks);
         }
 
-        this.#lavashark.emit('trackAdd', this, tracks);
+        this.lavashark.emit('trackAdd', this, tracks);
     }
 
 
@@ -192,7 +192,7 @@ export default class Player {
             throw new Error('No voice channel id provided');
         }
 
-        this.#lavashark.emit('debug', `Connecting player ${this.guildId} to voice channel ${this.voiceChannelId}`);
+        this.lavashark.emit('debug', `Connecting player ${this.guildId} to voice channel ${this.voiceChannelId}`);
 
         if (this.node === null) {
             await this.assignNode();
@@ -201,14 +201,14 @@ export default class Player {
         this.state = ConnectionState.CONNECTING;
         this.sendVoiceState();
 
-        this.#lavashark.emit('playerConnect', this);
+        this.lavashark.emit('playerConnect', this);
     }
 
     /**
      * Disconnects from the voice channel
      */
     public disconnect() {
-        this.#lavashark.sendWS(this.guildId, {
+        this.lavashark.sendWS(this.guildId, {
             op: 4,
             d: {
                 guild_id: this.guildId,
@@ -220,7 +220,7 @@ export default class Player {
 
         this.state = ConnectionState.DISCONNECTED;
 
-        this.#lavashark.emit('debug', `Player ${this.guildId} disconnected from voice channel`);
+        this.lavashark.emit('debug', `Player ${this.guildId} disconnected from voice channel`);
     }
 
     /**
@@ -231,14 +231,14 @@ export default class Player {
 
         this.node?.rest.destroyPlayer(this.guildId)
             .catch((_error) => {
-                this.#lavashark.emit('error', this.node!, new Error(`Failed to send destroyPlayer signal to node "${this.node?.identifier}"`));
+                this.lavashark.emit('error', this.node!, new Error(`Failed to send destroyPlayer signal to node "${this.node?.identifier}"`));
             });
 
         this.node = null;
-        this.#lavashark.players.delete(this.guildId);
+        this.lavashark.players.delete(this.guildId);
 
-        this.#lavashark.emit('playerDestroy', this);
-        this.#lavashark.emit('debug', `Player ${this.guildId} destroyed`);
+        this.lavashark.emit('playerDestroy', this);
+        this.lavashark.emit('debug', `Player ${this.guildId} destroyed`);
     }
 
     /**
@@ -249,7 +249,7 @@ export default class Player {
         if (node.state !== NodeState.CONNECTED) throw new Error('The provided node is not connected.');
         if (this.node === node) return;
 
-        this.#lavashark.emit('debug', `Moving player ${this.guildId} from node ${this.node?.identifier ?? 'None'} to node ${node.identifier}`);
+        this.lavashark.emit('debug', `Moving player ${this.guildId} from node ${this.node?.identifier ?? 'None'} to node ${node.identifier}`);
 
         this.moving = true;
 
@@ -318,7 +318,7 @@ export default class Player {
                     try {
                         newTrack = await newTrack.build();
                     } catch (err) {
-                        this.#lavashark.emit('trackException', this, newTrack, (err as LoadException & { cause: string }));
+                        this.lavashark.emit('trackException', this, newTrack, (err as LoadException & { cause: string }));
                         if (this.queue.size > 0) this.play();
                         return;
                     }
@@ -472,7 +472,7 @@ export default class Player {
      * @private
      */
     private sendVoiceState() {
-        this.#lavashark.sendWS(this.guildId, {
+        this.lavashark.sendWS(this.guildId, {
             op: 4,
             d: {
                 guild_id: this.guildId,
@@ -482,7 +482,7 @@ export default class Player {
             }
         });
 
-        this.#lavashark.emit('debug', `Sent voiceStateUpdate to discord gateway for player ${this.guildId}. Channel: ${this.voiceChannelId}. Self mute: ${this.selfMute}. Self deaf: ${this.selfDeaf}`);
+        this.lavashark.emit('debug', `Sent voiceStateUpdate to discord gateway for player ${this.guildId}. Channel: ${this.voiceChannelId}. Self mute: ${this.selfMute}. Self deaf: ${this.selfDeaf}`);
     }
 
     /**
@@ -540,7 +540,7 @@ export default class Player {
             }
         });
 
-        this.#lavashark.emit('debug', `Sent voiceUpdate to lavalink node for player ${this.guildId}.`);
+        this.lavashark.emit('debug', `Sent voiceUpdate to lavalink node for player ${this.guildId}.`);
     }
 
     /**
@@ -554,7 +554,7 @@ export default class Player {
         }
 
         if ('time' in state) {
-            this.#positionTimestamp = state.time;
+            this.positionTimestamp = state.time;
         }
 
         if ('connected' in state) {

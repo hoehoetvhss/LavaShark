@@ -5,10 +5,13 @@ import Track from './queue/Track';
 import { AbstractExternalSource } from './sources/AbstractExternalSource';
 import type { IncomingDiscordPayload, LavaSharkEvents, LavaSharkOptions, OutgoingDiscordPayload, PlayerOptions, SEARCH_SOURCE, SearchResult } from '../@types';
 export default class LavaShark extends EventEmitter {
-    #private;
     clientId: string;
     nodes: Node[];
     players: Map<string, Player>;
+    private externalSources;
+    private checkNodesStateTimer;
+    private lastNodeSorting;
+    private readonly defaultSearchSource;
     readonly unresolvedSearchSource: SEARCH_SOURCE;
     readonly useISRC: boolean;
     /**

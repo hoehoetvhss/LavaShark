@@ -43,14 +43,14 @@ export default class Node {
     public state: NodeState;
     public stats: NodeStats;
 
-    #penalties?: number;
-    #ws: WebSocket | null;
+    private penalties?: number;
+    private ws: WebSocket | null;
 
-    #packetQueue: string[];
-    #resuming: boolean;
-    #keepAliveInterval: NodeJS.Timeout;
+    private packetQueue: string[];
+    private resuming: boolean;
+    private keepAliveInterval: NodeJS.Timeout;
 
-    readonly #lavashark: LavaShark;
+    private readonly lavashark: LavaShark;
 
     static checkOptions(options: NodeOptions) {
         if (typeof options !== 'object') {
@@ -117,7 +117,7 @@ export default class Node {
     constructor(lavashark: LavaShark, options: NodeOptions) {
         Node.checkOptions(options);
 
-        this.#lavashark = lavashark;
+        this.lavashark = lavashark;
 
         options.resuming = typeof (options.resuming) === 'undefined' ? true : options.resuming;
         options.followRedirects = typeof (options.followRedirects) === 'undefined' ? true : options.followRedirects;
@@ -148,10 +148,10 @@ export default class Node {
             }
         };
 
-        this.#packetQueue = [];
+        this.packetQueue = [];
 
         this.rest = new RESTController(this);
-        this.#ws = null;
+        this.ws = null;
     }
 
     get identifier() {
@@ -159,11 +159,11 @@ export default class Node {
     }
 
     get totalPenalties() {
-        if (this.state !== NodeState.CONNECTED || !this.#ws) {
+        if (this.state !== NodeState.CONNECTED || !this.ws) {
             return Infinity;
         }
         else {
-            return this.#penalties ?? 0;
+            return this.penalties ?? 0;
         }
     }
 
@@ -190,7 +190,7 @@ export default class Node {
         const weightedNullFramePenalty = (weightNullFramePenalty / totalWeight) * nullFramePenalty;
         const weightedCpuPenalty = (weightCpuPenalty / totalWeight) * cpuPenalty;
 
-        this.#penalties = ~~((weightedPlayingPlayers + weightedDeficitFramePenalty + weightedNullFramePenalty + weightedCpuPenalty) * 100);
+        this.penalties = ~~((weightedPlayingPlayers + weightedDeficitFramePenalty + weightedNullFramePenalty + weightedCpuPenalty) * 100);
     }
 
     /**
@@ -204,24 +204,24 @@ export default class Node {
         this.state = NodeState.CONNECTING;
 
         const headers = {
-            'User-Id': this.#lavashark.clientId,
+            'User-Id': this.lavashark.clientId,
             'Client-Name': `LavaShark/${VERSION}_${generateRandomKey(8)}`,
             Authorization: this.options.password ?? 'youshallnotpass'
         };
 
         const wsUrl = `ws${this.options.secure ? 's' : ''}://${this.options.hostname}:${this.options.port}/v${API_VERSION}/websocket`;
 
-        this.#ws = new WebSocket(wsUrl, {
+        this.ws = new WebSocket(wsUrl, {
             headers,
             followRedirects: this.options.followRedirects
         });
 
-        this.#ws.onopen = this.open.bind(this);
-        this.#ws.onmessage = this.message.bind(this);
-        this.#ws.onerror = this.error.bind(this);
-        this.#ws.onclose = this.close.bind(this);
-        this.#ws.on('upgrade', this.upgrade.bind(this));
-        this.#ws.on('pong', this.pong.bind(this));
+        this.ws.onopen = this.open.bind(this);
+        this.ws.onmessage = this.message.bind(this);
+        this.ws.onerror = this.error.bind(this);
+        this.ws.onclose = this.close.bind(this);
+        this.ws.on('upgrade', this.upgrade.bind(this));
+        this.ws.on('pong', this.pong.bind(this));
     }
 
     /**
@@ -229,8 +229,8 @@ export default class Node {
      * @param {boolean} full - Fully disconnect the node. Removes it from the nodes list and stops the periodic reconnection
      */
     public disconnect(full: boolean = false) {
-        if (full && this.#lavashark) this.#lavashark.stopCheckNodeState(this.identifier);
-        if (this.#ws !== null) this.#ws.close(1000, 'LavaShark: disconnect');
+        if (full && this.lavashark) this.lavashark.stopCheckNodeState(this.identifier);
+        if (this.ws !== null) this.ws.close(1000, 'LavaShark: disconnect');
     }
 
     /**
@@ -248,27 +248,27 @@ export default class Node {
      */
     public async updatseNodeSession(): Promise<boolean> {
         try {
-            await this.rest.updateSession(this.#resuming, this.options.resumeTimeout ?? 60);
+            await this.rest.updateSession(this.resuming, this.options.resumeTimeout ?? 60);
             return true;
         } catch (_) {
-            this.#lavashark.emit('error', this, new Error(`Updating session failed, on node "${this.options.id}"`));
+            this.lavashark.emit('error', this, new Error(`Updating session failed, on node "${this.options.id}"`));
             return false;
         }
     }
 
     private KeepingNodeAwake(milliseconds: number) {
-        this.#keepAliveInterval = setInterval(async () => {
+        this.keepAliveInterval = setInterval(async () => {
             try {
-                this.#ws?.ping();
+                this.ws?.ping();
             } catch (error) {
-                this.#lavashark.emit('error', this, new Error(`Keeping node awake failed, try to reconnect node "${this.options.id}"`));
+                this.lavashark.emit('error', this, new Error(`Keeping node awake failed, try to reconnect node "${this.options.id}"`));
                 await this.reconnect();
             }
         }, milliseconds);
     }
 
     private stopKeepingNodeAwake() {
-        clearInterval(this.#keepAliveInterval);
+        clearInterval(this.keepAliveInterval);
     }
 
     /**
@@ -323,7 +323,7 @@ export default class Node {
             return ping;
         } catch (_) {
             this.disconnect();
-            this.#lavashark.emit('error', this, new Error(`An error occurred while updating stats: Unable to connect to the node`));
+            this.lavashark.emit('error', this, new Error(`An error occurred while updating stats: Unable to connect to the node`));
             return -1;
         }
     }
@@ -367,7 +367,7 @@ export default class Node {
             this.calcPenalties();
         } catch (_) {
             this.disconnect();
-            this.#lavashark.emit('error', this, new Error(`An error occurred while updating stats: Unable to connect to the node "${this.identifier}"`));
+            this.lavashark.emit('error', this, new Error(`An error occurred while updating stats: Unable to connect to the node "${this.identifier}"`));
         }
     }
 
@@ -379,7 +379,7 @@ export default class Node {
                 try {
                     newTrack = await newTrack.build();
                 } catch (err) {
-                    this.#lavashark.emit('trackException', player, newTrack, (err as LoadException & { cause: string }));
+                    this.lavashark.emit('trackException', player, newTrack, (err as LoadException & { cause: string }));
                     this.pollTrack(player);
                     return;
                 }
@@ -391,11 +391,11 @@ export default class Node {
         }
 
         player.current = null;
-        this.#lavashark.emit('queueEnd', player);
+        this.lavashark.emit('queueEnd', player);
     }
 
     private handlePlayerEvent(e: PlayerEventPayload) {
-        const player = this.#lavashark.players.get(e.guildId);
+        const player = this.lavashark.players.get(e.guildId);
 
         if (!player || player.node !== this) return;
 
@@ -421,7 +421,7 @@ export default class Node {
                 break;
             }
             default: {
-                this.#lavashark.emit('warn', this, `Unhandled player event. Unknown event type: ${e.type}`);
+                this.lavashark.emit('warn', this, `Unhandled player event. Unknown event type: ${e.type}`);
                 break;
             }
         }
@@ -437,7 +437,7 @@ export default class Node {
         }
 
         if (player.current) {
-            this.#lavashark.emit('trackStart', player, player.current);
+            this.lavashark.emit('trackStart', player, player.current);
         }
     }
 
@@ -453,7 +453,7 @@ export default class Node {
 
         if (['LOAD_FAILED', 'CLEANUP'].includes(ev.reason)) {
             if (player.current) {
-                this.#lavashark.emit('trackEnd', player, player.current, ev.reason);
+                this.lavashark.emit('trackEnd', player, player.current, ev.reason);
             }
 
             this.pollTrack(player);
@@ -461,7 +461,7 @@ export default class Node {
         }
 
         if (player.current) {
-            this.#lavashark.emit('trackEnd', player, player.current, ev.reason);
+            this.lavashark.emit('trackEnd', player, player.current, ev.reason);
         }
 
         if (player.repeatMode === RepeatMode.TRACK) {
@@ -478,19 +478,19 @@ export default class Node {
 
     private handleTrackStuck(ev: TrackStuckEvent, player: Player) {
         if (player.current) {
-            this.#lavashark.emit('trackStuck', player, player.current, ev.thresholdMs);
+            this.lavashark.emit('trackStuck', player, player.current, ev.thresholdMs);
         }
     }
 
     private handleTrackException(ev: TrackExceptionEvent, player: Player) {
         if (player.current) {
-            this.#lavashark.emit('trackException', player, player.current, ev.exception);
+            this.lavashark.emit('trackException', player, player.current, ev.exception);
         }
         player.skip();
     }
 
     private handleWSClose(ev: WebSocketClosedEvent, player: Player) {
-        this.#lavashark.emit('playerDisconnect', player, ev.code, ev.reason);
+        this.lavashark.emit('playerDisconnect', player, ev.code, ev.reason);
 
         switch (ev.code) {
             case 1001:
@@ -510,16 +510,16 @@ export default class Node {
 
     private open() {
         this.state = NodeState.CONNECTED;
-        this.#lavashark.emit('nodeConnect', this);
+        this.lavashark.emit('nodeConnect', this);
 
         this.retryAttempts = 0;
         this.KeepingNodeAwake(30 * 1000);
 
-        for (let i = 0; i < this.#packetQueue.length; i++) {
+        for (let i = 0; i < this.packetQueue.length; i++) {
             if (this.state !== NodeState.CONNECTED) break;
-            const packet = this.#packetQueue.shift();
+            const packet = this.packetQueue.shift();
 
-            if (packet) this.#ws?.send(packet);
+            if (packet) this.ws?.send(packet);
         }
     }
 
@@ -535,11 +535,11 @@ export default class Node {
                 delete payload.op;
                 this.stats = payload as NodeStats;
                 this.calcPenalties();
-                this.#lavashark.emit('debug', `Node "${this.identifier}" penalties: ${this.totalPenalties}`);
+                this.lavashark.emit('debug', `Node "${this.identifier}" penalties: ${this.totalPenalties}`);
                 break;
             }
             case 'playerUpdate': {
-                this.#lavashark.players.get(payload.guildId)?.update(payload.state);
+                this.lavashark.players.get(payload.guildId)?.update(payload.state);
                 break;
             }
             case 'event': {
@@ -547,22 +547,22 @@ export default class Node {
                 break;
             }
             default: {
-                this.#lavashark.emit('warn', this, 'Unknown payload op: ' + payload.op);
+                this.lavashark.emit('warn', this, 'Unknown payload op: ' + payload.op);
                 break;
             }
         }
 
-        this.#lavashark.emit('raw', this, payload);
+        this.lavashark.emit('raw', this, payload);
     }
 
     private error({ error, message }: ErrorEvent) {
         if (message.includes('connect ECONNREFUSED')) return;
         if (message.includes('401')) {
             this.retryAttempts = Infinity;
-            this.#lavashark.emit('error', this, new Error('Authentication failed!'));
+            this.lavashark.emit('error', this, new Error('Authentication failed!'));
             return;
         }
-        this.#lavashark.emit('error', this, error);
+        this.lavashark.emit('error', this, error);
     }
 
     private async close({ code, reason, wasClean }: CloseEvent) {
@@ -570,19 +570,19 @@ export default class Node {
 
         this.stopKeepingNodeAwake();
 
-        this.#ws?.removeAllListeners();
-        this.#ws = null;
+        this.ws?.removeAllListeners();
+        this.ws = null;
 
         if (wasClean) {
-            this.#lavashark.emit('nodeDisconnect', this, code, reason);
+            this.lavashark.emit('nodeDisconnect', this, code, reason);
             return;
         }
 
         try {
-            const newNode = await this.#lavashark.bestNode();
+            const newNode = await this.lavashark.bestNode();
 
             if (newNode) {
-                for (const player of this.#lavashark.players.values()) {
+                for (const player of this.lavashark.players.values()) {
                     if (player.node === this) {
                         await player.moveNode(newNode);
                     }
@@ -592,7 +592,7 @@ export default class Node {
             // no available nodes, so we can't move the players
         }
 
-        this.#lavashark.emit('error', this, new Error(`WebSocket closed abnormally with code ${code}.`));
+        this.lavashark.emit('error', this, new Error(`WebSocket closed abnormally with code ${code}.`));
 
         if (this.retryAttempts > (this.options.maxRetryAttempts ?? 10)) return;
 
@@ -602,12 +602,12 @@ export default class Node {
 
     private upgrade(msg: IncomingMessage) {
         if (msg.headers['session-resumed'] === 'true') {
-            this.#lavashark.emit('nodeResume', this);
+            this.lavashark.emit('nodeResume', this);
         }
     }
 
     private pong(data: Buffer) {
-        this.#lavashark.emit('pong', this, data);
+        this.lavashark.emit('pong', this, data);
     }
 
     // ----------------------------------------------
