@@ -6,7 +6,10 @@ import type {
     EchoOptions,
     FilterOptions,
     HighPassOptions,
+    LavaDSPXEchoOptions,
     KaraokeOptions,
+    LavaDSPXFiltersOptions,
+    LavaDSPXLowPassOptions,
     LowPassOptions,
     NormalizationOptions,
     PluginFiltersOptions,
@@ -324,6 +327,31 @@ export default class Filters {
 
     public setHighPass(options: HighPassOptions | null, apply = true): this {
         return this.setPluginFilter('high-pass', options as Record<string, unknown> | null, apply);
+    }
+
+    /** Sets the filters provided by LavaDSPX-Plugin. */
+    public setLavaDSPXFilters(options: LavaDSPXFiltersOptions | null, apply = true): this {
+        return this.setPluginFilters(options as PluginFiltersOptions | null, apply);
+    }
+
+    /** Sets LavaDSPX's normalization filter. */
+    public setLavaDSPXNormalization(options: NormalizationOptions | null, apply = true): this {
+        return this.setPluginFilter('normalization', options as Record<string, unknown> | null, apply);
+    }
+
+    /** Sets LavaDSPX's echo filter. */
+    public setLavaDSPXEcho(options: LavaDSPXEchoOptions | null, apply = true): this {
+        return this.setPluginFilter('echo', options as Record<string, unknown> | null, apply);
+    }
+
+    /** Sets LavaDSPX's high-pass filter. */
+    public setLavaDSPXHighPass(options: HighPassOptions | null, apply = true): this {
+        return this.setPluginFilter('high-pass', options as Record<string, unknown> | null, apply);
+    }
+
+    /** Sets LavaDSPX's low-pass filter. */
+    public setLavaDSPXLowPass(options: LavaDSPXLowPassOptions | null, apply = true): this {
+        return this.setPluginFilter('low-pass', options as Record<string, unknown> | null, apply);
     }
 
     /**

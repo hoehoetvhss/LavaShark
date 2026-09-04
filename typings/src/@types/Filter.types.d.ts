@@ -52,6 +52,23 @@ export type HighPassOptions = {
     cutoffFrequency?: number;
     boostFactor?: number;
 };
+/** Options for the LavaDSPX plugin's low-pass filter. */
+export type LavaDSPXLowPassOptions = {
+    cutoffFrequency?: number;
+    boostFactor?: number;
+};
+/** Options for the LavaDSPX plugin's echo filter. */
+export type LavaDSPXEchoOptions = {
+    echoLength?: number;
+    decay?: number;
+};
+/** The filters currently exposed by LavaDSPX-Plugin. */
+export type LavaDSPXFiltersOptions = {
+    'low-pass'?: LavaDSPXLowPassOptions;
+    'high-pass'?: HighPassOptions;
+    normalization?: NormalizationOptions;
+    echo?: LavaDSPXEchoOptions;
+};
 export type PluginFiltersOptions = {
     normalization?: NormalizationOptions;
     echo?: EchoOptions;
